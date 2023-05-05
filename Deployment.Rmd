@@ -1,0 +1,186 @@
+---
+title: "Deployment"
+author: "Ángela H. Arteaga and Álvaro D. Gómez"
+date: '2023-05-02'
+output: html_document
+---
+
+
+# Deployment: Model-agnostic methods
+
+## 1.- One dimensional Partial Dependence Plot.
+The partial dependence plot shows the marginal effect of a feature on the predicted outcome of a previously fit model. 
+ 
+*EXERCISE:*
+Apply PDP to the regression example of predicting bike rentals. Fit a random forest approximation for the prediction of bike rentals (cnt). Use the partial dependence plot to visualize the relationships the model learned. Use the slides shown in class as model.  
+
+```{r}
+library(dplyr)
+library(plotly)
+library(reshape2)
+library(lubridate)
+library(randomForestSRC)
+library(pdp)
+```
+
+```{r}
+day <- read.csv("day.csv")
+hour <- read.csv("hour.csv")
+```
+
+```{r}
+df<- day[, c("workingday","holiday", "cnt")]
+day$season<- factor(day$season)
+season<- model.matrix(~0+day$season) #creating dummys
+colnames(season)<- c("winter", "spring", "summer", "fall") #fall gonna be all 0's
+df<- cbind(df, season[, c("winter", "spring", "summer")])
+df$misty<-ifelse(day$weathersit==2,1,0)
+df$rain<- ifelse(day$weathersit==3| day$weathersit==4, 1,0)
+df$temp<- (day$temp)*(39+8)-8  
+df$hum<- day$hum*100
+df$windspeed <-day$windspeed*67
+day$dteday<- as.Date(day$dteday)
+df$days_since_2011<- cumsum(c(0, diff(day$dteday)))
+df
+
+rf <- rfsrc(cnt~., data=df)
+results <- select(days_since, days_since_2011, temp, hum, windspeed, cnt)
+nr
+nr <- nrow(days_since)
+for(c in names(results)[1:4])
+{
+  for(i in 1:nr){
+    r <- df
+    r[[c]] <- df[[c]][i]
+    sal <- predict(rf, r)$predicted
+    results[[c]][i] <- sum(sal) / nr
+  }
+}
+
+```
+
+
+```{r}
+
+p1 <- ggplot(df, aes(x=days_since_2011, y=results$days_since_2011))+geom_line()+geom_rug(sides="b", alpha=0.1)+ylim(0,6000)+ xlab('Days since 2011') 
+p2 <- ggplot(df, aes(x=temp, y=results$temp))+geom_line()+geom_rug(sides="b", alpha=0.1)+ylim(0,6000)+xlab('Temperature')
+p3 <- ggplot(df, aes(x=hum, y=results$hum))+geom_line()+geom_rug(sides="b", alpha=0.1)+ylim(0,6000)+xlab('Humidity')
+p4 <- ggplot(df, aes(x=windspeed, y=results$windspeed))+geom_line()+geom_rug(sides="b", alpha=0.1)+ylim(0,6000)+xlab('Wind speed')
+subplot(p1, p2, p3, p4)
+```
+
+*QUESTION:*
+
+_Analyse the influence of days since 2011, temperature, humidity and wind speed on the predicted bike counts._
+
+
+First graph shows the influence of the variable "days_since_2011" on our target variable: bike rental. It can be seen that as time goes by more bikes are being rented, until more or less day 660 where it starts to decrease.
+
+In the second graph is reflected how the variable "temperature" influences in bike rental. The distribution of temperature increases until it reaches approximately 24 degrees where the probability of bike rental starts to decrease, as it happened in the other case.
+
+
+For the remaining two variables, we can observe that the opposite occurs. There is a clear negative correlation where an increase in "humidity" and "wind speed" results in a decrease in bike rental. 
+
+So we conclude that the first two variables (days_since_2011, temperature) show a positive correlation with the target variable, until they reach a point where the trend changes to a negative correlation. Whereas the last variables (wind speed, humidity) show a negative correlation with the bike rental. We consider these interpretations are consistent and make sense because during bad weather conditions, people are less likely to take a bike.
+
+
+## 2.- Bidimensional Partial Dependency Plot.
+
+*EXERCISE:*
+Generate a 2D Partial Dependency Plot with humidity and temperature to predict the number of bikes rented depending on those parameters.
+
+BE CAREFUL: due to the size, extract a set of random samples from the BBDD before generating the data for the Partial Dependency Plot. 
+
+Show the density distribution of both input features with the 2D plot as shown in the class slides. 
+
+TIP: Use geom_tile() to generate the 2D plot. Set width and height to avoid holes. 
+
+```{r}
+sampled <- sample_n(df, 40)
+temp <- sampled$temp
+hum <- sampled$hum
+th <- inner_join(data.frame(temp),data.frame(hum), by=character())
+th$p <- 0
+
+for(i in 1:nrow(th)){
+  r <- df
+  r[["temp"]] <- th[["temp"]][i]
+  r[["hum"]] <- th[["hum"]][i]
+  
+  sal <- predict(rf, r)$predicted
+  th[["p"]][i] <- sum(sal) / nr
+}
+
+```
+
+
+```{r}
+pd <- ggplot(th, aes(x = temp, y = hum, fill = p)) +
+  geom_tile(width=40, height=40) + labs(x='Temperature', y='Humidity') +  guides(fill = guide_colourbar(title = "Number of bikes"))
+pd
+```
+
+
+*QUESTION:*
+Interpret the results.
+
+By seen the heat map obtained, we can interpret that as "temperature" increases the bike rental will do also. So there is a positive association. 
+
+Regarding to the "humidity" the opposite happens, there is a negative association, making clear that if the humidity increases the bike rental will decrease.
+
+## 3.- PDP to explain the price of a house.
+
+*EXERCISE:*
+Apply the previous concepts to predict the price of a house from the database kc_house_data.csv. In this case, use again a random forest approximation for the prediction based on the features bedrooms, bathrooms, sqft_living, sqft_lot, floors and yr_built. 
+Use the partial dependence plot to visualize the relationships the model learned.
+
+BE CAREFUL: due to the size, extract a set of random samples from the BBDD before generating the data for the Partial Dependency Plot. 
+
+
+```{r}
+
+d <- read.csv("kc_house_data.csv")
+
+sampled <- sample_n(d, 1000)
+
+sampled <- select(sampled, bedrooms, bathrooms, sqft_living, sqft_lot, floors, yr_built, price)
+
+rf <- rfsrc(price~., data=sampled)
+
+results <- select(sampled, bedrooms, bathrooms, sqft_living, floors, price)
+nr <- nrow(sampled)
+for(c in names(results)[1:4])
+{
+  for(i in 1:nr){
+    r <- sampled
+    r[[c]] <- sampled[[c]][i]
+    sal <- predict(rf, r)$predicted
+    results[[c]][i] <- sum(sal) / nr
+  }
+}
+
+```
+
+
+
+```{r}
+p1 <- ggplot(sampled, aes(x=bedrooms, y=results$bedrooms))+geom_line()+geom_rug(sides="b", alpha=0.1)+ xlab('Bedrooms') 
+p2 <- ggplot(sampled, aes(x=bathrooms, y=results$bathrooms))+geom_line()+geom_rug(sides="b", alpha=0.1)+xlab('Bathrooms')
+p3 <- ggplot(sampled, aes(x=sqft_living, y=results$sqft_living))+geom_line()+geom_rug(sides="b", alpha=0.1)+xlab('Sqft Living')
+p4 <- ggplot(sampled, aes(x=floors, y=results$floors))+geom_line()+geom_rug(sides="b", alpha=0.1)+xlab('Floors')
+subplot(p1, p2, p3, p4)
+```
+
+
+*QUESTION:*
+
+
+Analyse the influence of bedrooms, bathrooms, sqft_living and floors on the predicted price.
+
+The first plot, according to the variable *bedrooms* we can see that houses with one bedroom aren't as cheap as houses with two bedrooms, this increase makes sense until we see that houses with 3 bedrooms aren't so expensive, with a huge difference of 40000 in the price. A posible cause could be because people don't expect to live with 2 people as much as alone or just with another mate. Also this houses might be more frequent to find, so the price reflects it. As the number of bedrooms increases the price does also but it doesn´t reach even the price of houses with one bedroom, it's probable that as the number o beds increase the conditions of the house such as comfort or personal space decrease. The most expensive, from 3 bedrooms in advance is 6 bedrooms (closer to the price of a house with one bedroom).
+
+The second plot reflects the relation between the price and the number of *bathrooms*, the relation is positive increasing, so as the number of baths increases the price does also. This fact makes sense, bathrooms are essential and having more is considered an added value in terms of price of a house.
+
+We can see that for the third plot something similar happens. While the *squared feet* increase the price does also. When it reaches the 6980 sqft it seems to increase very little, maybe because the price is too high it doesn't make such a big difference.
+
+Last but not least, for the *floors* we can see that houses with 1 floor has the lowest price. It increases from 1 to 1.5 but it decreases in two. From two floors until 3 where it increases a lot. There is not such a great difference between 1.5 and 2 floors, so it makes sense it generally increases if the floors increase. 
